@@ -7,11 +7,24 @@
 
 import argparse
 import json
+import numpy as np
 from pythonosc import udp_client
 from sequencer import process_image
 from osc_sender import stream_steps, send_all_at_once
 
-# Главный блок
+
+class NumpyEncoder(json.JSONEncoder):
+    """Кодировщик, преобразующий numpy‑числа в стандартные типы Python."""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -39,13 +52,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("Анализ изображения...")
-    steps = process_image(args.image, grid_size=args.grid)
+    try:
+        steps = process_image(args.image, grid_size=args.grid)
+    except Exception as e:
+        print(f"Ошибка при обработке: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
+
     print(f"Сгенерировано {len(steps)} шагов.")
 
     if args.savejson:
         json_path = args.image.rsplit('.', 1)[0] + "_modular.json"
         with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(steps, f, indent=2, ensure_ascii=False)
+            json.dump(steps, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
         print(f"JSON сохранён: {json_path}")
 
     client = udp_client.SimpleUDPClient(args.host, args.port)

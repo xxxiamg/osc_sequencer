@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-from collections import Counter
 
 
 def box_counting_dim(binary_image, max_box_size=64):
@@ -28,11 +27,11 @@ def gradient_entropy(gray):
     """Энтропия распределения градиентов (хаос/порядок)."""
     grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    mag, angle = cv2.cartToPolar(grad_x, grad_y)
+    mag, _ = cv2.cartToPolar(grad_x, grad_y)
     hist = cv2.calcHist([mag.astype(np.uint8)], [0], None, [256], [0, 256])
     hist = hist.flatten() / hist.sum()
     entropy = -np.sum(hist * np.log2(hist + 1e-7))
-    return entropy / 8.0  # нормируем примерно на 0..1
+    return entropy / 8.0
 
 
 def texture_to_adsr(cell_bgr, bg_color):
@@ -51,20 +50,17 @@ def texture_to_adsr(cell_bgr, bg_color):
 
     hsv = cv2.cvtColor(cell_bgr, cv2.COLOR_BGR2HSV)
     tolerance = (20, 40, 40)
-    lower = np.array([max(0, bg_color[0]-tolerance[0]),
-                      max(0, bg_color[1]-tolerance[1]),
-                      max(0, bg_color[2]-tolerance[2])], dtype=np.uint8)
-    upper = np.array([min(179, bg_color[0]+tolerance[0]),
-                      min(255, bg_color[1]+tolerance[1]),
-                      min(255, bg_color[2]+tolerance[2])], dtype=np.uint8)
+    lower = np.array([max(0, bg_color[0] - tolerance[0]),
+                      max(0, bg_color[1] - tolerance[1]),
+                      max(0, bg_color[2] - tolerance[2])], dtype=np.uint8)
+    upper = np.array([min(179, bg_color[0] + tolerance[0]),
+                      min(255, bg_color[1] + tolerance[1]),
+                      min(255, bg_color[2] + tolerance[2])], dtype=np.uint8)
     bg_mask = cv2.inRange(hsv, lower, upper)
     emptiness = np.count_nonzero(bg_mask) / bg_mask.size
     release = 50 + emptiness * 2000
 
-    # Добавляем фрактальную сложность и энтропию
-    fractal_dim = box_counting_dim(edges, max_box_size=32)
-    chaos = gradient_entropy(gray)
-    # Объединяем: 0 – порядок, 1 – хаос
-    complexity = min(1.0, (fractal_dim / 2.0 + chaos) / 2.0)
+    # Временная заглушка, чтобы избежать зависания
+    complexity = 0.3
 
     return attack, sustain, release, emptiness, complexity
