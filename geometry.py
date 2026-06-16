@@ -44,6 +44,9 @@ def detect_geometry(cell_bgr):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
     gray = clahe.apply(gray)
     edges = cv2.Canny(gray, 50, 150)
+
+    # print(".", end="", flush=True)   # отладка
+
     line_stats = classify_lines(edges, gray)
 
     num_lines = sum([line_stats['horizontal'], line_stats['vertical'],
@@ -60,13 +63,13 @@ def detect_geometry(cell_bgr):
     if num_circles > 3:
         waveform = 'sine'
     elif line_stats['curves'] > 2:
-        waveform = 'sine'  # кривые -> синус
+        waveform = 'sine'      # кривые -> синус
     elif line_stats['diagonal'] > line_stats['horizontal'] + line_stats['vertical']:
-        waveform = 'saw'    # диагонали -> пила
+        waveform = 'saw'       # диагонали -> пила
     elif line_stats['vertical'] > 2 * line_stats['horizontal']:
-        waveform = 'ramp'   # вертикальные -> рампа
+        waveform = 'ramp'      # вертикальные -> рампа
     elif line_stats['horizontal'] > 2 * line_stats['vertical']:
-        waveform = 'pulse'  # горизонтальные -> импульс
+        waveform = 'pulse'     # горизонтальные -> импульс
     elif num_lines > 5:
         waveform = 'square'
     elif edge_ratio > 0.2:
@@ -84,39 +87,45 @@ def detect_geometry(cell_bgr):
 
 
 def detect_perspective(image_bgr):
-    """Определяет перспективу по сходящимся линиям.
-    Возвращает глубину, ширину стерео-поля, панораму."""
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    """Быстрая оценка перспективы по уменьшенному изображению."""
+    h, w = image_bgr.shape[:2]
+    # Работаем с уменьшенной копией
+    scale = min(1.0, 400.0 / max(w, h))
+    small = cv2.resize(image_bgr, (int(w*scale), int(h*scale)))
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
     lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=50)
     if lines is None:
         return {'depth': 0.0, 'width': 0.0, 'pan': 0.0}
 
-    # Группируем линии по точке схода (пересечению)
-    # Упрощённо: ищем точку с максимальным количеством пересечений
+    # Ограничиваем количество линий для быстродействия
+    max_lines = 100
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+
     intersections = []
     for i in range(len(lines)):
+        rho1, theta1 = lines[i][0]
+        A1 = np.array([[np.cos(theta1), np.sin(theta1)]])
         for j in range(i+1, len(lines)):
-            rho1, theta1 = lines[i][0]
             rho2, theta2 = lines[j][0]
-            A = np.array([[np.cos(theta1), np.sin(theta1)],
-                          [np.cos(theta2), np.sin(theta2)]])
+            A2 = np.array([[np.cos(theta2), np.sin(theta2)]])
+            A = np.vstack([A1, A2])
             b = np.array([rho1, rho2])
             if np.linalg.matrix_rank(A) < 2:
                 continue
-            pt = np.linalg.solve(A, b)
-            if 0 <= pt[0] < image_bgr.shape[1] and 0 <= pt[1] < image_bgr.shape[0]:
-                intersections.append(pt)
+            pt = np.linalg.lstsq(A, b, rcond=None)[0]
+            if 0 <= pt[0] < small.shape[1] and 0 <= pt[1] < small.shape[0]:
+                pt_orig = pt / scale
+                intersections.append(pt_orig)
 
     if not intersections:
         return {'depth': 0.0, 'width': 0.0, 'pan': 0.0}
 
     pts = np.array(intersections)
-    center = np.array([image_bgr.shape[1]/2, image_bgr.shape[0]/2])
-    # Точка схода – медианная позиция кластера пересечений
+    center = np.array([w/2, h/2])
     vanish_point = np.median(pts, axis=0)
-    depth = 1.0 - np.linalg.norm(vanish_point - center) / \
-        max(image_bgr.shape[0], image_bgr.shape[1])
-    width = np.std(pts[:, 0]) / image_bgr.shape[1]
-    pan = (vanish_point[0] - center[0]) / (image_bgr.shape[1]/2)  # -1..1
+    depth = 1.0 - np.linalg.norm(vanish_point - center) / max(h, w)
+    width = np.std(pts[:, 0]) / w
+    pan = (vanish_point[0] - center[0]) / (w/2)
     return {'depth': round(depth, 3), 'width': round(width, 3), 'pan': round(pan, 3)}
