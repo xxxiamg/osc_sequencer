@@ -1,10 +1,9 @@
 import cv2
 import numpy as np
 
-# Доминирующие цвета (K-means)
-
 
 def dominant_colors_kmeans(cell_bgr, k=3):
+    # без изменений
     pixels = cell_bgr.reshape(-1, 3).astype(np.float32)
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 0.5)
     _, labels, centers = cv2.kmeans(
@@ -23,10 +22,9 @@ def dominant_colors_kmeans(cell_bgr, k=3):
     result.sort(key=lambda x: x[3], reverse=True)
     return result
 
-# Ведущий объект (самый большой контур)
-
 
 def find_lead_object_mask(image_bgr):
+    # без изменений
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(
         gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -38,3 +36,36 @@ def find_lead_object_mask(image_bgr):
     mask = np.zeros(image_bgr.shape[:2], dtype=np.uint8)
     cv2.drawContours(mask, [largest], -1, 255, -1)
     return mask
+
+
+def determine_color_harmony(dom_hue_list):
+    """
+    Принимает список hue (0..179) доминирующих цветов.
+    Возвращает тип гармонии (complementary, analogous, triad, monochrome)
+    и предлагаемое смещение тональности для аккордов.
+    """
+    if len(dom_hue_list) < 2:
+        return 'monochrome', 0
+
+    hues = np.array(sorted(dom_hue_list))
+    # Разница между соседними
+    diffs = np.diff(hues)
+    mean_diff = np.mean(diffs)
+
+    if mean_diff < 15:
+        harmony = 'monochrome'
+        shift = 0
+    elif 25 < mean_diff < 45:
+        harmony = 'analogous'
+        shift = int(mean_diff)
+    elif 80 < mean_diff < 100:
+        harmony = 'complementary'
+        shift = 60  # тритон или кварта
+    elif 50 < mean_diff < 70:
+        harmony = 'triad'
+        shift = 30
+    else:
+        harmony = 'complex'
+        shift = int(mean_diff % 60)
+
+    return harmony, shift

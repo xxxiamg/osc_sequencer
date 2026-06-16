@@ -1,7 +1,38 @@
 import cv2
 import numpy as np
+from collections import Counter
 
-# Текстура - ADSR
+
+def box_counting_dim(binary_image, max_box_size=64):
+    """Упрощённая box-counting размерность."""
+    if binary_image.size == 0:
+        return 0.0
+    sizes = []
+    counts = []
+    for size in range(2, max_box_size):
+        boxes = 0
+        for y in range(0, binary_image.shape[0], size):
+            for x in range(0, binary_image.shape[1], size):
+                if np.any(binary_image[y:y+size, x:x+size]):
+                    boxes += 1
+        if boxes > 0:
+            sizes.append(size)
+            counts.append(boxes)
+    if len(sizes) < 2:
+        return 0.0
+    coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
+    return -coeffs[0]
+
+
+def gradient_entropy(gray):
+    """Энтропия распределения градиентов (хаос/порядок)."""
+    grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    mag, angle = cv2.cartToPolar(grad_x, grad_y)
+    hist = cv2.calcHist([mag.astype(np.uint8)], [0], None, [256], [0, 256])
+    hist = hist.flatten() / hist.sum()
+    entropy = -np.sum(hist * np.log2(hist + 1e-7))
+    return entropy / 8.0  # нормируем примерно на 0..1
 
 
 def texture_to_adsr(cell_bgr, bg_color):
@@ -30,4 +61,10 @@ def texture_to_adsr(cell_bgr, bg_color):
     emptiness = np.count_nonzero(bg_mask) / bg_mask.size
     release = 50 + emptiness * 2000
 
-    return attack, sustain, release
+    # Добавляем фрактальную сложность и энтропию
+    fractal_dim = box_counting_dim(edges, max_box_size=32)
+    chaos = gradient_entropy(gray)
+    # Объединяем: 0 – порядок, 1 – хаос
+    complexity = min(1.0, (fractal_dim / 2.0 + chaos) / 2.0)
+
+    return attack, sustain, release, emptiness, complexity
